@@ -4,12 +4,12 @@ This file calculates time-wise correlation between BLEU scores and metrics.
 import argparse, pickle, json, os
 import pandas as pd
 import numpy as np
-from scipy.stats import spearmanr
+from scipy.stats import spearmanr, kendalltau
 from metrics import METRIC_FILES
 import pickle
 
 
-def get_corr_df(metrics_df):
+def get_corr_df(metrics_df, correlation_type = 'spearman'):
     '''
     Correlations for a single checkpoint
     '''
@@ -17,7 +17,11 @@ def get_corr_df(metrics_df):
     for metric, _ in METRIC_FILES.items():
         # TODO: If doing phases, need to change this to calculate correlation within each phase
         # corr, _ = spearmanr(metrics_df['ood_bleu'], metrics_df[metric])
-        corr, _ = spearmanr(metrics_df['id_bleu'], metrics_df[metric])
+        if correlation_type == 'spearman':
+            corr, _ = spearmanr(metrics_df['id_bleu'], metrics_df[metric])
+        elif correlation_type == 'kendalltau':
+            corr, _ = kendalltau(metrics_df['id_bleu'], metrics_df[metric])
+            
         if metric == 'rand_distance':
             corr = corr * -1.0
         correlations.append((metric, corr))
@@ -145,6 +149,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--id", type=str, default="WMT")
     parser.add_argument("--bleu_type", type=str, default='test', choices=['test', 'gap'])
+    parser.add_argument("--correlation_type", type=str, default='spearman', choices=['spearman', 'kendalltau'])
     #TODO: update the WW results using WeightWatcher 0.5.6
     #parser.add_argument("--reproduce", action='store_true')
 
@@ -155,7 +160,7 @@ if __name__ == "__main__":
     from experiments_time_wise import EXPERIMENTS
     exps = EXPERIMENTS[f"{args.id}"] #+ EXPERIMENTS[ood]
     all_metrics = [get_metrics_df(exp, args.bleu_type) for exp in exps]
-    corr_dfs = [get_corr_df(metric_df) for metric_df in all_metrics]
+    corr_dfs = [get_corr_df(metric_df, args.correlation_type) for metric_df in all_metrics]
     all_corrs = pd.concat(corr_dfs)
     
     rank_correlations_aggregated = {}
@@ -170,8 +175,12 @@ if __name__ == "__main__":
     # Remove nan's which are failed measurements
     for key in rank_correlations_aggregated.keys():
         rank_correlations_aggregated[key] = [x for x in rank_correlations_aggregated[key] if not np.isnan(x)]
+    
+    correlation_suffix = ''
+    if args.correlation_type == 'kendalltau':
+        correlation_suffix = '_kendalltau'
         
-    with open(f'results/plot_results_{args.bleu_type}_Simpson_{args.id}.pkl', 'wb') as f:
+    with open(f'results/plot_results_{args.bleu_type}_Simpson_{args.id}{correlation_suffix}.pkl', 'wb') as f:
         pickle.dump(rank_correlations_aggregated, f)
     
     #pickle.dump(all_corrs, open(f'results/Simpson_correlation_{args.id}_{args.bleu_type}.pkl', "wb"))
